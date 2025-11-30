@@ -1,2 +1,3 @@
 numpy
 pytest
+pyglet>=2.0.0
