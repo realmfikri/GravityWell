@@ -73,12 +73,19 @@ class Renderer:
 
         self.window_size = window_size
         self.bounds = (-1.0, 1.0, -1.0, 1.0)
+        self.view_scale = 0.9
+
+        self.overlay_lines: list[str] = []
+        self.overlay_drawers: list[callable] = []
 
     def on_draw(self) -> None:
         self.window.clear()
         if self.particle_vertices is not None or self.trail_vertices is not None:
             self.batch.draw()
         self._draw_energy_graphs()
+        self._draw_overlay_text()
+        for drawer in self.overlay_drawers:
+            drawer()
 
     def update_scene(
         self,
@@ -114,6 +121,17 @@ class Renderer:
             # keep kinetic-only updates aligned with potential history length
             self.energy_history.append(kinetic_energy, self.energy_history.potential[-1] if self.energy_history.potential else 0.0)
 
+    def set_overlay(self, lines: Sequence[str]) -> None:
+        """Display simple text overlays in the upper-left corner."""
+
+        self.overlay_lines = list(lines)
+
+    def add_overlay_drawer(self, drawer: callable) -> None:
+        """Register a callable invoked after the scene and graphs are drawn."""
+
+        if drawer not in self.overlay_drawers:
+            self.overlay_drawers.append(drawer)
+
     def run(self, update_callable) -> None:
         """Start the pyglet event loop.
 
@@ -147,8 +165,21 @@ class Renderer:
         span_y = max_y - min_y
         norm_x = (positions[:, 0] - min_x) / span_x * 2.0 - 1.0
         norm_y = (positions[:, 1] - min_y) / span_y * 2.0 - 1.0
-        scale = 0.9  # keep within viewport borders
-        return np.column_stack((norm_x * scale, norm_y * scale))
+        return np.column_stack((norm_x * self.view_scale, norm_y * self.view_scale))
+
+    def screen_to_world(self, x: float, y: float) -> np.ndarray:
+        """Convert window pixel coordinates into simulation-space positions."""
+
+        min_x, max_x, min_y, max_y = self.bounds
+        span_x = max_x - min_x
+        span_y = max_y - min_y
+        norm_x = (((x / self.window_size) * 2.0) - 1.0) / self.view_scale
+        norm_y = (((y / self.window_size) * 2.0) - 1.0) / self.view_scale
+        norm_x = float(np.clip(norm_x, -1.0, 1.0))
+        norm_y = float(np.clip(norm_y, -1.0, 1.0))
+        world_x = min_x + (norm_x + 1.0) / 2.0 * span_x
+        world_y = min_y + (norm_y + 1.0) / 2.0 * span_y
+        return np.array([world_x, world_y], dtype=float)
 
     def _update_particles(self, normalized_positions: np.ndarray) -> None:
         flat_positions = normalized_positions.astype("f4", copy=False).ravel()
@@ -264,6 +295,23 @@ class Renderer:
             y=plot_top - 28,
             color=(255, 153, 51, 255),
         ).draw()
+
+    def _draw_overlay_text(self) -> None:
+        if not self.overlay_lines:
+            return
+
+        y = self.window_size - 18
+        for line in self.overlay_lines:
+            pyglet.text.Label(
+                line,
+                font_size=10,
+                x=12,
+                y=y,
+                anchor_x="left",
+                anchor_y="center",
+                color=(230, 230, 230, 255),
+            ).draw()
+            y -= 16
 
 
 __all__ = ["Renderer", "EnergyHistory"]
